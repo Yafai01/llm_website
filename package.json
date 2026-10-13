@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "Interactive, browser-only explainer of how large language models work: tokenization, embeddings, attention, sampling and alignment.",
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -33,6 +36,6 @@
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.18.0",
     "vite": "^6.2.3",
-    "vitest": "^3.2.4"
+    "vitest": "^5.0.4"
   }
 }
