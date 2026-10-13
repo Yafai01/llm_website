@@ -1,6 +1,0 @@
-{
-  "name": "LLM Simply Explained",
-  "description": "An interactive, visual educational guide showing how Large Language Models work, including step-by-step tokenization, word embeddings vector space, self-attention mechanisms, and generation parameters like Temperature and Top-P.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
