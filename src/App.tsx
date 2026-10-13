@@ -1,25 +1,21 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useState, ComponentType } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
-  BookOpen,
-  Layers,
-  Compass,
-  Network,
-  Sliders,
-  GraduationCap,
   Award,
+  BookOpen,
+  BrainCircuit,
+  Check,
+  ChevronLeft,
   ChevronRight,
-  Sparkles,
-  Info,
-  CheckCircle,
-  Layout,
+  Compass,
+  GraduationCap,
+  Layers,
+  Network,
+  Presentation,
+  Sliders,
 } from "lucide-react";
 
+import IntroSection from "./components/IntroSection";
 import TokenizerSection from "./components/TokenizerSection";
 import EmbeddingSection from "./components/EmbeddingSection";
 import AttentionSection from "./components/AttentionSection";
@@ -28,445 +24,232 @@ import TrainingSection from "./components/TrainingSection";
 import QuizSection from "./components/QuizSection";
 import PresentationMode from "./components/PresentationMode";
 
+type SectionId =
+  | "intro"
+  | "tokenizer"
+  | "embeddings"
+  | "attention"
+  | "playground"
+  | "training"
+  | "quiz"
+  | "slides";
+
 interface Section {
-  id: string;
-  title: string;
-  shortTitle: string;
-  icon: ComponentType<{ size?: number; className?: string }>;
-  color: string;
-  bgLight: string;
+  id: SectionId;
+  label: string;
+  icon: ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean | "true" }>;
 }
 
 const SECTIONS: Section[] = [
-  {
-    id: "intro",
-    title: "The Super-Autocomplete Concept",
-    shortTitle: "Introduction",
-    icon: BookOpen,
-    color: "text-slate-600 dark:text-slate-300",
-    bgLight: "bg-slate-50 dark:bg-slate-900/60",
-  },
-  {
-    id: "tokenizer",
-    title: "Tokenization: Chopping Words into Chunks",
-    shortTitle: "1. Tokenizer",
-    icon: Layers,
-    color: "text-rose-500",
-    bgLight: "bg-rose-50/40 dark:bg-rose-950/20",
-  },
-  {
-    id: "embeddings",
-    title: "Embeddings: Mapping Words on Coordinates",
-    shortTitle: "2. Embeddings",
-    icon: Compass,
-    color: "text-emerald-500",
-    bgLight: "bg-emerald-50/40 dark:bg-emerald-950/20",
-  },
-  {
-    id: "attention",
-    title: "Self-Attention: Reading Words in Context",
-    shortTitle: "3. Self-Attention",
-    icon: Network,
-    color: "text-blue-500",
-    bgLight: "bg-blue-50/40 dark:bg-blue-950/20",
-  },
-  {
-    id: "playground",
-    title: "Next-Token Playground: Autocomplete Engine",
-    shortTitle: "4. Generator",
-    icon: Sliders,
-    color: "text-amber-500",
-    bgLight: "bg-amber-50/40 dark:bg-amber-950/20",
-  },
-  {
-    id: "training",
-    title: "Machine School: How Models Learn",
-    shortTitle: "5. Alignment",
-    icon: GraduationCap,
-    color: "text-violet-500",
-    bgLight: "bg-violet-50/40 dark:bg-violet-950/20",
-  },
-  {
-    id: "quiz",
-    title: "Knowledge Check: Interactive Certification",
-    shortTitle: "Evaluation Quiz",
-    icon: Award,
-    color: "text-rose-500",
-    bgLight: "bg-rose-50/40 dark:bg-rose-950/20",
-  },
-  {
-    id: "presentation",
-    title: "LLM Slide Deck & Study Handbook (PPT)",
-    shortTitle: "★ Slides & Print (PPT)",
-    icon: Layout,
-    color: "text-indigo-505 dark:text-indigo-400",
-    bgLight: "bg-indigo-50/45 dark:bg-indigo-950/20",
-  },
+  { id: "intro", label: "Introduction", icon: BookOpen },
+  { id: "tokenizer", label: "1. Tokenization", icon: Layers },
+  { id: "embeddings", label: "2. Embeddings", icon: Compass },
+  { id: "attention", label: "3. Self-attention", icon: Network },
+  { id: "playground", label: "4. Sampling", icon: Sliders },
+  { id: "training", label: "5. Training & alignment", icon: GraduationCap },
+  { id: "quiz", label: "Quiz", icon: Award },
+  { id: "slides", label: "Slides & handout", icon: Presentation },
 ];
 
+const isSectionId = (value: string): value is SectionId => SECTIONS.some((s) => s.id === value);
+
+function sectionFromHash(): SectionId {
+  const hash = window.location.hash.replace(/^#/, "");
+  return isSectionId(hash) ? hash : "intro";
+}
+
 export default function App() {
-  const [activeSectionId, setActiveSectionId] = useState<string>("intro");
-  const [visitedSet, setVisitedSet] = useState<Set<string>>(new Set(["intro"]));
+  const [active, setActive] = useState<SectionId>(sectionFromHash);
+  const [visited, setVisited] = useState<Set<SectionId>>(() => new Set([sectionFromHash()]));
+  const contentRef = useRef<HTMLDivElement>(null);
+  const firstRender = useRef(true);
 
-  const handleSectionSwitch = (id: string) => {
-    setActiveSectionId(id);
-    setVisitedSet((prev) => {
-      const updated = new Set(prev);
-      updated.add(id);
-      return updated;
-    });
-  };
+  const goTo = useCallback((id: SectionId) => {
+    if (window.location.hash !== `#${id}`) window.location.hash = id;
+    setActive(id);
+  }, []);
 
-  // Convert progress into fraction %
-  const progressRatio = (visitedSet.size / SECTIONS.length) * 100;
+  // Keep state in sync with the URL so chapters can be linked and the back button works.
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.replace(/^#/, "");
+      if (isSectionId(hash)) setActive(hash);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useEffect(() => {
+    setVisited((prev) => (prev.has(active) ? prev : new Set(prev).add(active)));
+    // On small screens the chapter list scrolls horizontally; keep the current chapter visible.
+    document
+      .querySelector('nav[aria-label="Chapters"] [aria-current="page"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    // Move focus to the new chapter so keyboard and screen-reader users land on it.
+    contentRef.current?.focus({ preventScroll: true });
+    contentRef.current?.scrollIntoView({ block: "start" });
+  }, [active]);
+
+  const index = SECTIONS.findIndex((s) => s.id === active);
+  const prev = SECTIONS[index - 1];
+  const next = SECTIONS[index + 1];
 
   return (
-    <div className="min-h-screen bg-gray-50/40 dark:bg-gray-950 text-gray-800 dark:text-gray-100 flex flex-col font-sans">
-      {/* Top Banner / Navigation header */}
-      <header className="bg-white dark:bg-gray-905 border-b border-gray-150 dark:border-gray-900 sticky top-0 z-50 py-3.5 px-4 md:px-8 shadow-xs">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-2.5">
-            <span className="p-2 rounded-xl bg-gradient-to-br from-rose-500 via-amber-500 to-blue-500 text-white shadow-sm flex items-center justify-center">
-              <Sparkles size={18} className="animate-pulse" />
-            </span>
-            <div>
-              <h1 className="text-base font-bold tracking-tight text-gray-950 dark:text-white uppercase font-sans">
-                LLM Simply Explained
-              </h1>
-              <span className="text-[10px] text-gray-400 font-mono tracking-wider block uppercase">
-                An interactive handbook on Transformers & vectors
-              </span>
-            </div>
-          </div>
+    <MotionConfig reducedMotion="user">
+      <div className="flex min-h-screen flex-col bg-slate-50 font-sans text-slate-800 print:bg-white">
+        <a
+          href="#main-content"
+          onClick={(e) => {
+            e.preventDefault();
+            contentRef.current?.focus();
+          }}
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:shadow"
+        >
+          Skip to content
+        </a>
 
-          {/* Cumulative Progress bar tracker */}
-          <div className="w-full md:w-64 space-y-1.5 shrink-0">
-            <div className="flex justify-between text-[10px] font-mono uppercase tracking-wider text-gray-405">
-              <span>Chapter Progress</span>
-              <span className="font-bold text-gray-700 dark:text-gray-350">
-                {visitedSet.size} / {SECTIONS.length} Completed
+        <header className="no-print z-50 lg:sticky lg:top-0 border-b border-slate-200 bg-white/95 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between md:px-8">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white">
+                <BrainCircuit size={18} aria-hidden="true" />
               </span>
+              <div>
+                <p className="text-base font-semibold tracking-tight text-slate-900">LLM Simply Explained</p>
+                <p className="text-xs text-slate-500">An interactive guide to how language models work</p>
+              </div>
             </div>
-            <div className="w-full h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+
+            <div className="w-full sm:w-56" aria-label="Reading progress">
+              <div className="mb-1 flex justify-between text-xs text-slate-500">
+                <span>Progress</span>
+                <span className="font-medium text-slate-700">
+                  {visited.size} of {SECTIONS.length} viewed
+                </span>
+              </div>
               <div
-                className="h-full bg-gradient-to-r from-rose-500 via-amber-500 to-blue-500 transition-all duration-500 ease-out"
-                style={{ width: `${progressRatio}%` }}
-              />
+                className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={SECTIONS.length}
+                aria-valuenow={visited.size}
+                aria-label="Chapters viewed"
+              >
+                <div
+                  className="h-full rounded-full bg-indigo-600 transition-[width] duration-500"
+                  style={{ width: `${(visited.size / SECTIONS.length) * 100}%` }}
+                />
+              </div>
             </div>
           </div>
+        </header>
+
+        <div className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 items-start gap-6 px-4 py-6 md:px-8 lg:grid-cols-12 lg:gap-8 lg:py-8 print:block print:p-0">
+          <nav aria-label="Chapters" className="no-print lg:sticky lg:top-24 lg:col-span-3">
+            <div className="rounded-xl border border-slate-200 bg-white p-2 lg:p-3">
+              <p className="hidden px-2 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 lg:block">
+                Contents
+              </p>
+              <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+                {SECTIONS.map((s) => {
+                  const isActive = s.id === active;
+                  const Icon = s.icon;
+                  return (
+                    <li key={s.id} className="shrink-0">
+                      <a
+                        href={`#${s.id}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          goTo(s.id);
+                        }}
+                        aria-current={isActive ? "page" : undefined}
+                        className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm transition-colors ${
+                          isActive
+                            ? "bg-indigo-50 font-medium text-indigo-700"
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        <Icon size={16} aria-hidden="true" className={isActive ? "text-indigo-600" : "text-slate-400"} />
+                        <span className="flex-1">{s.label}</span>
+                        {visited.has(s.id) && !isActive && (
+                          <Check size={14} className="hidden text-slate-400 lg:block" aria-label="viewed" />
+                        )}
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </nav>
+
+          <main
+            id="main-content"
+            ref={contentRef}
+            tabIndex={-1}
+            className="print-full min-w-0 scroll-mt-28 rounded-xl border border-slate-200 bg-white p-5 focus:outline-none md:p-8 lg:col-span-9"
+          >
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={active}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18 }}
+              >
+                {active === "intro" && <IntroSection />}
+                {active === "tokenizer" && <TokenizerSection />}
+                {active === "embeddings" && <EmbeddingSection />}
+                {active === "attention" && <AttentionSection />}
+                {active === "playground" && <PlaygroundSection />}
+                {active === "training" && <TrainingSection />}
+                {active === "quiz" && <QuizSection />}
+                {active === "slides" && <PresentationMode />}
+
+                <div className="no-print mt-10 flex items-center justify-between gap-3 border-t border-slate-200 pt-6">
+                  {prev ? (
+                    <button
+                      type="button"
+                      onClick={() => goTo(prev.id)}
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    >
+                      <ChevronLeft size={16} aria-hidden="true" />
+                      <span>
+                        <span className="sr-only">Previous: </span>
+                        {prev.label}
+                      </span>
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  {next && (
+                    <button
+                      type="button"
+                      onClick={() => goTo(next.id)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                    >
+                      <span>
+                        <span className="sr-only">Next: </span>
+                        {next.label}
+                      </span>
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </main>
         </div>
-      </header>
 
-      {/* Main Structural Grid Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 md:px-8 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Side: Chapters & Roadmap rail */}
-        <aside className="lg:col-span-3 space-y-4">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-150 dark:border-gray-900 p-4 shadow-xs sticky top-24 space-y-3">
-            <span className="block text-[10px] font-bold text-gray-400 uppercase font-mono tracking-widest pl-1">
-              Table of Contents
-            </span>
-
-            <nav className="flex flex-col gap-1">
-              {SECTIONS.map((sec) => {
-                const isActive = sec.id === activeSectionId;
-                const isVisited = visitedSet.has(sec.id);
-                const Icon = sec.icon;
-
-                return (
-                  <button
-                    key={sec.id}
-                    onClick={() => handleSectionSwitch(sec.id)}
-                    className={`w-full text-left py-2.5 px-3 rounded-xl text-xs font-semibold font-sans tracking-tight flex items-center justify-between border cursor-pointer transition-all ${
-                      isActive
-                        ? "bg-slate-900 border-slate-900 text-white dark:bg-white dark:border-white dark:text-gray-950 shadow-xs scale-[1.01]"
-                        : "bg-transparent border-transparent text-gray-600 dark:text-gray-405 hover:bg-gray-100/60 dark:hover:bg-gray-850"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 truncate">
-                      <Icon
-                        size={15}
-                        className={isActive ? "text-rose-500 dark:text-rose-600" : sec.color}
-                      />
-                      <span className="truncate">{sec.shortTitle}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0 pl-1">
-                      {isVisited && !isActive && (
-                        <CheckCircle size={12} className="text-emerald-500 shrink-0" />
-                      )}
-                      <ChevronRight size={12} className="opacity-40" />
-                    </div>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-        </aside>
-
-        {/* Right Side: Active lesson canvas box */}
-        <div className="lg:col-span-9 bg-white dark:bg-gray-900/40 rounded-2xl border border-gray-150/85 dark:border-gray-900 p-6 md:p-8 shadow-xs">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeSectionId}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              {activeSectionId === "intro" && (
-                <div className="space-y-8">
-                  {/* Lesson Heading */}
-                  <div className="border-b border-gray-100 dark:border-gray-800 pb-5">
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider font-mono">
-                      Getting Started
-                    </span>
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 font-sans tracking-tight mt-1">
-                      The Autocomplete Brain: What is an LLM?
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 max-w-2xl leading-relaxed">
-                      You have likely used ChatGPT, Gemini, or Claude. But what actually is a **Large Language Model (LLM)**? Let&apos;s clear the mathematical jargon and explain it in plain English.
-                    </p>
-                  </div>
-
-                  {/* Mental Model layout cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Concept card 1 */}
-                    <div className="bg-gradient-to-br from-slate-100 to-white dark:from-gray-900 dark:to-gray-950 p-5 rounded-2xl border border-gray-150 dark:border-gray-850 space-y-3">
-                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-500">
-                        1. Think of it as: Supercharged Autocomplete
-                      </h3>
-                      <p className="text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-                        When you write a message on your phone, it suggests the absolute most likely next word.
-                        An LLM works on the **exact same principle**—just hundreds of billions of times larger.
-                        It scans history and tells you what word should logically follow!
-                      </p>
-                    </div>
-
-                    {/* Concept card 2 */}
-                    <div className="bg-gradient-to-br from-slate-100 to-white dark:from-gray-900 dark:to-gray-950 p-5 rounded-2xl border border-gray-150 dark:border-gray-850 space-y-3">
-                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-500">
-                        2. How does it answer questions?
-                      </h3>
-                      <p className="text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-                        If you prompt: &quot;The capital of France is...&quot;, the autocomplete knows from
-                        reading the internet that the next word is almost certainly going to be **Paris**.
-                        By continuously predicting next words, it writes whole essays, computer code, and songs!
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Step-by-step roadmap outline */}
-                  <div className="bg-slate-50 dark:bg-gray-950/40 rounded-xl p-5 border border-gray-100 dark:border-gray-900">
-                    <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-widest font-mono flex items-center gap-1.5 mb-3">
-                      <Info size={14} className="text-slate-500" /> Your Educational Roadmap
-                    </h4>
-
-                    <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
-                      In this handbook, you will walk step-by-step through the actual pipeline inside a state-of-the-art model. Click the sections in the sidebar or below to begin:
-                    </p>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="flex gap-2">
-                        <span className="text-rose-500 font-bold text-xs font-mono">01.</span>
-                        <div className="space-y-0.5">
-                          <span className="block text-xs font-bold tracking-tight">Tokenization</span>
-                          <span className="block text-[11px] text-gray-400">
-                            See how words are split into numerical chunks.
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <span className="text-emerald-500 font-bold text-xs font-mono">02.</span>
-                        <div className="space-y-0.5">
-                          <span className="block text-xs font-bold tracking-tight">Embeddings</span>
-                          <span className="block text-[11px] text-gray-400">
-                            Map semantic words onto mathematical coordinate grids.
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <span className="text-blue-500 font-bold text-xs font-mono">03.</span>
-                        <div className="space-y-0.5">
-                          <span className="block text-xs font-bold tracking-tight">Self-Attention</span>
-                          <span className="block text-[11px] text-gray-400">
-                            Connect words in full sentence contexts in parallel.
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <span className="text-amber-500 font-bold text-xs font-mono">04.</span>
-                        <div className="space-y-0.5">
-                          <span className="block text-xs font-bold tracking-tight">Playground Generator</span>
-                          <span className="block text-[11px] text-gray-400">
-                            Tweak Temperature parameters to sample token probability wheels!
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Immediate jump trigger */}
-                  <div className="flex justify-end pt-2">
-                    <button
-                      onClick={() => handleSectionSwitch("tokenizer")}
-                      className="bg-slate-900 dark:bg-white text-white dark:text-gray-950 font-bold py-3 px-6 rounded-xl text-xs md:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1 bg-gradient-to-r hover:opacity-90 cursor-pointer"
-                    >
-                      Step 1: Start Tokenization <ChevronRight size={16} />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeSectionId === "tokenizer" && (
-                <div className="space-y-6">
-                  <TokenizerSection />
-                  <div className="flex justify-between items-center pt-8 border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={() => handleSectionSwitch("intro")}
-                      className="text-xs font-bold text-gray-500 hover:text-gray-700 transition"
-                    >
-                      ← Back to Intro
-                    </button>
-                    <button
-                      onClick={() => handleSectionSwitch("embeddings")}
-                      className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 px-5 rounded-xl text-xs md:text-sm tracking-wide shadow-md transition-all flex items-center gap-1 cursor-pointer"
-                    >
-                      Step 2: Embeddings Coordinates →
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeSectionId === "embeddings" && (
-                <div className="space-y-6">
-                  <EmbeddingSection />
-                  <div className="flex justify-between items-center pt-8 border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={() => handleSectionSwitch("tokenizer")}
-                      className="text-xs font-bold text-gray-500 hover:text-gray-700 transition"
-                    >
-                      ← Back to Tokenizer
-                    </button>
-                    <button
-                      onClick={() => handleSectionSwitch("attention")}
-                      className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 px-5 rounded-xl text-xs md:text-sm tracking-wide shadow-md transition-all flex items-center gap-1 cursor-pointer"
-                    >
-                      Step 3: Self-Attention Context →
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeSectionId === "attention" && (
-                <div className="space-y-6">
-                  <AttentionSection />
-                  <div className="flex justify-between items-center pt-8 border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={() => handleSectionSwitch("embeddings")}
-                      className="text-xs font-bold text-gray-500 hover:text-gray-700 transition"
-                    >
-                      ← Back to Embeddings
-                    </button>
-                    <button
-                      onClick={() => handleSectionSwitch("playground")}
-                      className="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 px-5 rounded-xl text-xs md:text-sm tracking-wide shadow-md transition-all flex items-center gap-1 cursor-pointer"
-                    >
-                      Step 4: Predict Playground →
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeSectionId === "playground" && (
-                <div className="space-y-6">
-                  <PlaygroundSection />
-                  <div className="flex justify-between items-center pt-8 border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={() => handleSectionSwitch("attention")}
-                      className="text-xs font-bold text-gray-500 hover:text-gray-700 transition"
-                    >
-                      ← Back to Attention
-                    </button>
-                    <button
-                      onClick={() => handleSectionSwitch("training")}
-                      className="bg-violet-500 hover:bg-violet-600 text-white font-bold py-2.5 px-5 rounded-xl text-xs md:text-sm tracking-wide shadow-md transition-all flex items-center gap-1 cursor-pointer"
-                    >
-                      Step 5: How they Learn →
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeSectionId === "training" && (
-                <div className="space-y-6">
-                  <TrainingSection />
-                  <div className="flex justify-between items-center pt-8 border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={() => handleSectionSwitch("playground")}
-                      className="text-xs font-bold text-gray-500 hover:text-gray-700 transition"
-                    >
-                      ← Back to Playground
-                    </button>
-                    <button
-                      onClick={() => handleSectionSwitch("quiz")}
-                      className="bg-rose-500 hover:bg-rose-600 text-white font-bold py-2.5 px-5 rounded-xl text-xs md:text-sm tracking-wide shadow-md transition-all flex items-center gap-1 cursor-pointer"
-                    >
-                      Step 6: Certification Exam →
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeSectionId === "quiz" && (
-                <div className="space-y-6">
-                  <QuizSection />
-                  <div className="flex justify-between items-center pt-8 border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={() => handleSectionSwitch("training")}
-                      className="text-xs font-bold text-gray-500 hover:text-gray-700 transition cursor-pointer"
-                    >
-                      ← Back to School Stage
-                    </button>
-                    <button
-                      onClick={() => handleSectionSwitch("presentation")}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl text-xs md:text-sm tracking-wide shadow-md transition-all flex items-center gap-1 cursor-pointer"
-                    >
-                      Step 7: Keynote PPT & Print Handout →
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeSectionId === "presentation" && (
-                <div className="space-y-6">
-                  <PresentationMode onClose={() => handleSectionSwitch("intro")} />
-                  <div className="flex justify-start pt-8 border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={() => handleSectionSwitch("quiz")}
-                      className="text-xs font-bold text-gray-500 hover:text-gray-700 transition cursor-pointer"
-                    >
-                      ← Back to Evaluation Quiz
-                    </button>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      </main>
-
-      {/* Modern footer with clean credits */}
-      <footer className="mt-auto py-8 bg-white dark:bg-gray-905 border-t border-gray-150 dark:border-gray-900 text-center text-xs text-gray-400 font-mono">
-        <div className="max-w-7xl mx-auto px-4 space-y-1">
-          <p>© 2026 LLM Simply Explained. Hand-crafted for visual cognitive engineering.</p>
-          <p className="text-[10px] text-gray-500 uppercase tracking-widest">
-            From Tokenization to Softmax Prediction, everything unfolded.
+        <footer className="no-print border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500">
+          <p className="mx-auto max-w-7xl px-4">
+            Everything runs in your browser. No language model is called; demos use small, clearly labelled examples.
           </p>
-        </div>
-      </footer>
-    </div>
+        </footer>
+      </div>
+    </MotionConfig>
   );
 }
