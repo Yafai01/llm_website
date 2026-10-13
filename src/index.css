@@ -1,1 +1,69 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-slate-50);
+  color: var(--color-slate-800);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* One consistent, clearly visible keyboard focus ring. */
+:focus-visible {
+  outline: 2px solid var(--color-indigo-600);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Programmatically focused containers (e.g. the chapter after navigation) need no ring. */
+[tabindex="-1"]:focus {
+  outline: none;
+}
+
+input[type="range"] {
+  accent-color: var(--color-indigo-600);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Printing: only the lesson content (handout or completion record) is printed. */
+@media print {
+  body {
+    background: #fff;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-full {
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  .print-break-avoid {
+    break-inside: avoid;
+  }
+}

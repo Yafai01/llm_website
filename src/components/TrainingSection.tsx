@@ -1,340 +1,298 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import { useRef, useState, type KeyboardEvent } from "react";
+import { CheckCircle2, RotateCcw, Scale, XCircle } from "lucide-react";
+import { Card, CardTitle, SectionHeader, SimulationNotice, buttonPrimary, buttonSecondary } from "./ui";
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { GraduationCap, ThumbsUp, ThumbsDown, Sparkles, Trophy, RefreshCw } from "lucide-react";
+type Choice = "A" | "B";
 
-interface AlignScenario {
-  id: number;
+interface PreferenceScenario {
   prompt: string;
   responseA: string;
   responseB: string;
-  preferred: "A" | "B";
-  feedbackReason: string;
+  preferred: Choice;
+  reason: string;
 }
 
-const SCENARIOS: AlignScenario[] = [
+const SCENARIOS: PreferenceScenario[] = [
   {
-    id: 1,
-    prompt: "Write a message apologizing for arriving late to a project sync.",
-    responseA: "Sync late. Stuck. Sorry.",
-    responseB: "Hi team, my apologies but I am currently running 10 minutes behind due to public transit delays. Please feel free to start without me!",
+    prompt: "Write a message apologising for arriving late to a project meeting.",
+    responseA: "Late. Stuck. Sorry.",
+    responseB:
+      "Hi all, apologies, I'm running about 10 minutes late because of a train delay. Please start without me and I'll catch up on notes.",
     preferred: "B",
-    feedbackReason: "Response B is professional, polite, and provides an actionable update. Response A is too brief and feels rude.",
+    reason: "B is polite, explains the delay and tells the team what to do. A is curt and unhelpful.",
   },
   {
-    id: 2,
-    prompt: "How do I make a simple homemade volcano?",
-    responseA: "Buy highly explosive TNT and place it in your living room, then detonate with a safety fuse for a massive explosion.",
-    responseB: "You can create a safe baking soda volcano! Mix warm water, dish soap, red food coloring, and baking soda inside a plastic bottle container, then pour in vinegar to trigger a foaming eruption.",
+    prompt: "How do I make a simple baking-soda volcano for a school project?",
+    responseA: "I can't help with anything involving eruptions or explosions.",
+    responseB:
+      "Put a small bottle inside a clay or paper cone. Add warm water, a squirt of dish soap, red food colouring and two spoons of baking soda, then pour in vinegar to make it foam over.",
     preferred: "B",
-    feedbackReason: "Response B is educational and totally safe. Response A is highly dangerous and malicious, and is suppressed by safety RLHF alignment filters.",
+    reason:
+      "B is safe and genuinely helpful. A is an over-refusal: alignment aims to make models decline harmful requests, not harmless ones.",
   },
   {
-    id: 3,
-    prompt: "Draft a polite reminder to a client who hasn't paid their invoice yet.",
-    responseA: "GIVE ME MY MONEY NOW OR I WILL SUE YOU IMMEDIATELY SINCERELY YOURS.",
-    responseB: "Dear client, I hope you are having a wonderful week. This is a quick friendly reminder that invoice #204 is now outstanding. We would appreciate it if you could review this payment at your earliest convenience.",
-    preferred: "B",
-    feedbackReason: "Response B is professional and maintains a strong business relationship. Response A is hostile and unprofessional.",
+    prompt: "Draft a polite reminder to a client whose invoice is overdue.",
+    responseA:
+      "Hello, I hope you're well. This is a friendly reminder that invoice #204 is now past due. Could you let me know when we can expect payment? Happy to resend it if needed.",
+    responseB: "PAY INVOICE 204 NOW OR WE WILL TAKE ACTION.",
+    preferred: "A",
+    reason: "A is professional and keeps the relationship intact. B is hostile.",
   },
 ];
 
+const STAGES = [
+  {
+    id: "pretrain",
+    label: "Pre-training",
+    title: "Pre-training: predicting the next token on a huge text corpus",
+    body: (
+      <>
+        <p>
+          The model reads an enormous amount of text (web pages, books, code) and is trained on one task: predict the
+          next token. Getting good at this forces it to pick up grammar, facts and patterns of reasoning.
+        </p>
+        <p>
+          This is by far the most expensive stage, typically running on large GPU or TPU clusters for weeks to months.
+        </p>
+        <p>
+          <strong className="font-medium text-slate-800">Result:</strong> a <em>base model</em> that continues text
+          but does not reliably follow instructions. Asked &ldquo;Do you have a pen?&rdquo;, it may simply carry on
+          the story instead of answering.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "sft",
+    label: "Fine-tuning (SFT)",
+    title: "Supervised fine-tuning: learning to follow instructions",
+    body: (
+      <>
+        <p>
+          The base model is trained further on a much smaller, curated set of example conversations, each pairing a
+          request with a high-quality answer written or checked by people.
+        </p>
+        <pre className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700">
+{`User:      Translate "hello everyone" into French.
+Assistant: Bonjour à tous !`}
+        </pre>
+        <p>
+          <strong className="font-medium text-slate-800">Result:</strong> the model learns the assistant format and
+          answers requests directly.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "rlhf",
+    label: "Preferences (RLHF)",
+    title: "Learning from human preferences",
+    body: (
+      <>
+        <p>
+          People compare pairs of model answers to the same prompt and pick the better one. These comparisons train a{" "}
+          <strong className="font-medium text-slate-800">reward model</strong> that scores answers the way the
+          raters would.
+        </p>
+        <p>
+          The assistant is then optimised to produce answers the reward model scores highly (reinforcement learning
+          from human feedback, RLHF). Newer methods such as DPO learn from the same comparisons directly.
+        </p>
+        <p>
+          <strong className="font-medium text-slate-800">Result:</strong> answers that are more helpful, honest and
+          harmless, including declining genuinely harmful requests.
+        </p>
+      </>
+    ),
+  },
+] as const;
+
+type StageId = (typeof STAGES)[number]["id"];
+
 export default function TrainingSection() {
-  const [activeStage, setActiveStage] = useState<"pretrain" | "finetune" | "rlhf">("pretrain");
-  const [scenarioIdx, setScenarioIdx] = useState<number>(0);
-  const [gameScore, setGameScore] = useState<number>(0);
-  const [votedChoice, setVotedChoice] = useState<"A" | "B" | null>(null);
-  const [showResult, setShowResult] = useState<boolean>(false);
+  const [stage, setStage] = useState<StageId>("pretrain");
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [votes, setVotes] = useState<Array<Choice | null>>(() => SCENARIOS.map(() => null));
+  const [idx, setIdx] = useState(0);
 
-  const scenario = SCENARIOS[scenarioIdx];
+  const scenario = SCENARIOS[idx];
+  const vote = votes[idx];
+  const finished = votes.every((v) => v !== null) && idx === SCENARIOS.length - 1 && vote !== null;
+  const agreed = votes.filter((v, i) => v === SCENARIOS[i].preferred).length;
+  const answered = votes.filter((v) => v !== null).length;
+  const activeStage = STAGES.find((s) => s.id === stage) ?? STAGES[0];
 
-  const handleVote = (choice: "A" | "B") => {
-    setVotedChoice(choice);
-    setShowResult(true);
-    if (choice === scenario.preferred) {
-      setGameScore((score) => score + 1);
+  const onTabKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
+    let next = -1;
+    if (e.key === "ArrowRight") next = (i + 1) % STAGES.length;
+    if (e.key === "ArrowLeft") next = (i - 1 + STAGES.length) % STAGES.length;
+    if (e.key === "Home") next = 0;
+    if (e.key === "End") next = STAGES.length - 1;
+    if (next >= 0) {
+      e.preventDefault();
+      setStage(STAGES[next].id);
+      tabRefs.current[next]?.focus();
     }
   };
 
-  const handleNextScenario = () => {
-    setVotedChoice(null);
-    setShowResult(false);
-    setScenarioIdx((idx) => (idx + 1) % SCENARIOS.length);
+  const castVote = (choice: Choice) => {
+    if (vote) return;
+    setVotes((prev) => prev.map((v, i) => (i === idx ? choice : v)));
   };
 
-  const handleResetGame = () => {
-    setVotedChoice(null);
-    setShowResult(false);
-    setScenarioIdx(0);
-    setGameScore(0);
+  const restart = () => {
+    setVotes(SCENARIOS.map(() => null));
+    setIdx(0);
   };
 
   return (
-    <div className="space-y-8" id="training-section">
-      <div className="border-b border-gray-100 dark:border-gray-800 pb-5">
-        <span className="text-xs font-semibold text-violet-500 uppercase tracking-wider font-mono">
-          Step 05 / Model Alignment
-        </span>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 font-sans tracking-tight mt-1">
-          Machine School: How Models Learn
-        </h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 max-w-3xl leading-relaxed">
-          How do we take a system that only predicts autocomplete strings and turn it into a helpful, obedient, and highly customized assistant? We put it through three rigorous stages of educational training!
+    <div className="space-y-6">
+      <SectionHeader eyebrow="Chapter 5 · Training" title="From text predictor to assistant">
+        <p>
+          A model that only predicts text is not yet a useful assistant. Chatbots are typically built in three stages,
+          each adding a different kind of behaviour.
         </p>
-      </div>
+      </SectionHeader>
 
-      {/* Tabs navigation for education pipeline */}
-      <div className="grid grid-cols-3 gap-3">
-        <button
-          onClick={() => setActiveStage("pretrain")}
-          className={`py-3 px-2 md:px-4 rounded-xl border text-center transition-all ${
-            activeStage === "pretrain"
-              ? "bg-violet-500 hover:bg-violet-600 border-violet-500 text-white shadow-sm font-semibold scale-[1.01]"
-              : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-850 text-gray-600 dark:text-gray-400 hover:bg-gray-50"
-          }`}
-        >
-          <span className="block text-xs font-mono mb-1">STAGES 01</span>
-          <span className="text-xs md:text-sm tracking-tight block">1. Pre-training</span>
-        </button>
-
-        <button
-          onClick={() => setActiveStage("finetune")}
-          className={`py-3 px-2 md:px-4 rounded-xl border text-center transition-all ${
-            activeStage === "finetune"
-              ? "bg-violet-500 hover:bg-violet-600 border-violet-500 text-white shadow-sm font-semibold scale-[1.01]"
-              : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-850 text-gray-600 dark:text-gray-400 hover:bg-gray-50"
-          }`}
-        >
-          <span className="block text-xs font-mono mb-1">STAGES 02</span>
-          <span className="text-xs md:text-sm tracking-tight block">2. Fine-Tuning</span>
-        </button>
-
-        <button
-          onClick={() => setActiveStage("rlhf")}
-          className={`py-3 px-2 md:px-4 rounded-xl border text-center transition-all ${
-            activeStage === "rlhf"
-              ? "bg-violet-500 hover:bg-violet-600 border-violet-500 text-white shadow-sm font-semibold scale-[1.01]"
-              : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-850 text-gray-600 dark:text-gray-400 hover:bg-gray-50"
-          }`}
-        >
-          <span className="block text-xs font-mono mb-1">STAGES 03</span>
-          <span className="text-xs md:text-sm tracking-tight block">3. Safety & RLHF</span>
-        </button>
-      </div>
-
-      {/* Explanatory cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left side: educational context */}
-        <div className="lg:col-span-6 bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200/80 dark:border-gray-800 shadow-sm space-y-4">
-          <AnimatePresence mode="wait">
-            {activeStage === "pretrain" && (
-              <motion.div
-                key="pretrain"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
-              >
-                <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-800 pb-3">
-                  <GraduationCap className="text-violet-500" />
-                  <h3 className="font-bold text-gray-800 dark:text-gray-100 font-sans">
-                    Pre-training: Reading the Whole Web
-                  </h3>
-                </div>
-                <p className="text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-                  Imagine downloading the entire public internet, scanning through trillions of texts, papers, blocks of code, and novels, and forcing a neural network to make sense of standard sentence structure.
-                </p>
-                <div className="bg-violet-50/40 dark:bg-violet-950/20 p-4 rounded-xl text-xs space-y-2 text-violet-950 dark:text-violet-300">
-                  <p><strong>Goal:</strong> Teach the engine standard grammar, general knowledge, math operations, and coding syntax.</p>
-                  <p><strong>Cost & Time:</strong> Thousands of expensive super-GPU computer clusters running non-stop for months, consuming millions of dollars.</p>
-                  <p><strong>Result:</strong> An advanced autocomplete engine, but highly chaotic! If you write &quot;Do you have a pen&quot;, it might respond with &quot;...in your desk or my pocket?&quot; instead of answering directly.</p>
-                </div>
-              </motion.div>
-            )}
-
-            {activeStage === "finetune" && (
-              <motion.div
-                key="finetune"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
-              >
-                <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-800 pb-3">
-                  <GraduationCap className="text-violet-500" />
-                  <h3 className="font-bold text-gray-800 dark:text-gray-100 font-sans">
-                    Supervised Fine-Tuning (SFT): Learning to Follow Orders
-                  </h3>
-                </div>
-                <p className="text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-                  After reading the internet, the model has the intelligence, but has no discipline. In fine-tuning, cognitive engineers give the model thousands of beautifully formatted **Prompt / Answer** instruction scripts.
-                </p>
-                <div className="bg-violet-50/40 dark:bg-violet-950/20 p-4 rounded-xl text-xs space-y-2 text-violet-950 dark:text-violet-300">
-                  <p><strong>The Script Format:</strong></p>
-                  <div className="bg-white dark:bg-black p-2.5 rounded border border-gray-100 dark:border-gray-900 font-mono text-[10px] text-gray-700 dark:text-gray-400 space-y-1">
-                    <p className="text-rose-500">&gt; Q: Translate this sentence to French...</p>
-                    <p className="text-emerald-500">&gt; A: Bonjour tout le monde!</p>
-                  </div>
-                  <p className="pt-2"><strong>Result:</strong> The model learns to transition from repeating sentences to answering queries in direct instructional formats.</p>
-                </div>
-              </motion.div>
-            )}
-
-            {activeStage === "rlhf" && (
-              <motion.div
-                key="rlhf"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
-              >
-                <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-800 pb-3">
-                  <GraduationCap className="text-violet-500" />
-                  <h3 className="font-bold text-gray-800 dark:text-gray-100 font-sans">
-                    RLHF: Training for Helpfulness, Safety & Alignment
-                  </h3>
-                </div>
-                <p className="text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-                  How do we keep the artificial neural network from hallucinating lies, saying toxic words, or writing malicious scripts? We use **Reinforcement Learning from Human Feedback** (RLHF).
-                </p>
-                <p className="text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-                  Human trainers review thousands of draft answers and rate them relative to each other. The model adjusts its weights upwards for elegant answers and downwards for bad ones!
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Right side: Interactive SFT / RLHF rating simulator */}
-        <div className="lg:col-span-6 bg-gray-50 dark:bg-gray-900 rounded-xl p-5 border border-gray-200/80 dark:border-gray-800 flex-1 flex flex-col justify-between min-h-[350px]">
-          <div>
-            <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-850 pb-2 mb-4">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
-                <Trophy size={14} className="text-amber-500" /> RLHF Training alignment simulator
-              </span>
-              <span className="text-xs font-mono font-bold text-violet-600 bg-violet-50 dark:bg-violet-950/40 px-2 py-0.5 rounded">
-                Score: {gameScore} / {SCENARIOS.length}
-              </span>
-            </div>
-
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4 leading-normal">
-              **Play the role of an AI Safety Trainer!** Read the user prompt below, compare the two simulated outputs, and vote on which matches helpfulness standards.
-            </p>
-
-            <div className="space-y-3">
-              {/* Scenario Prompt */}
-              <div className="bg-violet-100/60 dark:bg-violet-950/20 p-3 rounded-lg border border-violet-200/40 dark:border-violet-900/40">
-                <span className="text-[10px] font-bold text-violet-700 dark:text-violet-300 font-mono uppercase block mb-1">Trainer Prompt</span>
-                <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">&quot;{scenario.prompt}&quot;</p>
-              </div>
-
-              {/* Response options side by side */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                {/* Option A */}
-                <button
-                  disabled={showResult}
-                  onClick={() => handleVote("A")}
-                  className={`text-left p-3 rounded-xl border text-xs transition-all relative ${
-                    showResult
-                      ? votedChoice === "A"
-                        ? scenario.preferred === "A"
-                          ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500 text-emerald-800 dark:text-emerald-300 cursor-default"
-                          : "bg-red-50 dark:bg-red-950/20 border-red-400 text-red-800 dark:text-red-300 cursor-default"
-                        : "bg-white dark:bg-gray-950 opacity-50 cursor-default border-gray-150 dark:border-gray-850"
-                      : "bg-white dark:bg-gray-950 hover:bg-gray-100 border-gray-200 dark:border-gray-800 hover:scale-[1.01] active:translate-y-0.5"
-                  }`}
-                >
-                  <span className="block font-bold font-mono uppercase text-[9px] mb-1.5 text-gray-400">Response A</span>
-                  <p className="leading-relaxed font-sans">{scenario.responseA}</p>
-                  
-                  {!showResult ? (
-                    <div className="absolute bottom-2 right-2 text-[8px] font-mono font-semibold text-gray-400 group-hover:block uppercase bg-gray-100 hover:bg-gray-200 px-1 py-0.5 rounded">
-                      Vote
-                    </div>
-                  ) : (
-                    votedChoice === "A" && (
-                      <span className="absolute bottom-2 right-2 text-[10px]">
-                        {scenario.preferred === "A" ? "✅ Good Answer" : "❌ Rejected"}
-                      </span>
-                    )
-                  )}
-                </button>
-
-                {/* Option B */}
-                <button
-                  disabled={showResult}
-                  onClick={() => handleVote("B")}
-                  className={`text-left p-3 rounded-xl border text-xs transition-all relative ${
-                    showResult
-                      ? votedChoice === "B"
-                        ? scenario.preferred === "B"
-                          ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500 text-emerald-800 dark:text-emerald-300 cursor-default"
-                          : "bg-red-50 dark:bg-red-950/20 border-red-400 text-red-800 dark:text-red-300 cursor-default"
-                        : "bg-white dark:bg-gray-950 opacity-50 cursor-default border-gray-150 dark:border-gray-850"
-                      : "bg-white dark:bg-gray-950 hover:bg-gray-100 border-gray-200 dark:border-gray-800 hover:scale-[1.01] active:translate-y-0.5"
-                  }`}
-                >
-                  <span className="block font-bold font-mono uppercase text-[9px] mb-1.5 text-gray-400">Response B</span>
-                  <p className="leading-relaxed font-sans">{scenario.responseB}</p>
-
-                  {!showResult ? (
-                    <div className="absolute bottom-2 right-2 text-[8px] font-mono font-semibold text-gray-400 group-hover:block uppercase bg-gray-100 px-1 py-0.5 rounded">
-                      Vote
-                    </div>
-                  ) : (
-                    votedChoice === "B" && (
-                      <span className="absolute bottom-2 right-2 text-[10px]">
-                        {scenario.preferred === "B" ? "✅ Helpful/Safe" : "❌ Rejected"}
-                      </span>
-                    )
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Explanation box on completion */}
-            <AnimatePresence>
-              {showResult && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-4 p-3 bg-gray-100 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg text-[11px] leading-relaxed"
-                >
-                  <p className="font-semibold text-purple-700 dark:text-purple-400 flex items-center gap-1.5 mb-1 uppercase font-mono tracking-wide text-[10px]">
-                    <Sparkles size={12} /> Alignment adjustments complete
-                  </p>
-                  <p className="text-gray-600 dark:text-gray-400">{scenario.feedbackReason}</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          <div className="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-800/80 mt-4">
-            {showResult ? (
+      <div>
+        <div role="tablist" aria-label="Training stages" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {STAGES.map((s, i) => {
+            const selected = s.id === stage;
+            return (
               <button
-                onClick={handleNextScenario}
-                className="flex-1 bg-violet-600 hover:bg-violet-700 text-white py-2 px-3 rounded-lg text-xs font-bold font-sans tracking-wide shadow transition-all cursor-pointer"
+                key={s.id}
+                ref={(el) => {
+                  tabRefs.current[i] = el;
+                }}
+                type="button"
+                role="tab"
+                id={`tab-${s.id}`}
+                aria-selected={selected}
+                aria-controls={`panel-${s.id}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => setStage(s.id)}
+                onKeyDown={(e) => onTabKey(e, i)}
+                className={`rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
+                  selected
+                    ? "border-indigo-600 bg-indigo-50 font-medium text-indigo-800"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
               >
-                Next Scenario
+                <span className="block text-xs text-slate-500">Stage {i + 1}</span>
+                {s.label}
               </button>
-            ) : null}
-            <button
-              onClick={handleResetGame}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-605 transition-colors p-2 text-xs flex items-center gap-1"
-              title="Reset Alignment Simulator"
-            >
-              <RefreshCw size={12} /> Reset Training
-            </button>
-          </div>
+            );
+          })}
+        </div>
+        <div
+          role="tabpanel"
+          id={`panel-${activeStage.id}`}
+          aria-labelledby={`tab-${activeStage.id}`}
+          className="mt-4 rounded-xl border border-slate-200 bg-white p-5"
+        >
+          <h3 className="text-base font-semibold text-slate-900">{activeStage.title}</h3>
+          <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-600">{activeStage.body}</div>
         </div>
       </div>
+
+      <Card>
+        <CardTitle icon={<Scale size={16} className="text-indigo-600" aria-hidden="true" />}>
+          Try it: be the human rater
+        </CardTitle>
+
+        <SimulationNotice>
+          Both responses were written by hand to show what preference data looks like. Your votes are compared with a
+          reference choice and are not used to train anything.
+        </SimulationNotice>
+
+        <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+          <span>
+            Comparison {idx + 1} of {SCENARIOS.length}
+          </span>
+          <span>
+            Agreement with reference: {agreed} / {answered}
+          </span>
+        </div>
+
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-medium text-slate-500">Prompt</p>
+          <p className="mt-0.5 text-sm font-medium text-slate-900">{scenario.prompt}</p>
+        </div>
+
+        <fieldset className="mt-3">
+          <legend className="sr-only">Which response is better?</legend>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {(["A", "B"] as const).map((choice) => {
+              const text = choice === "A" ? scenario.responseA : scenario.responseB;
+              const isPreferred = scenario.preferred === choice;
+              const isVote = vote === choice;
+              let style = "border-slate-300 bg-white hover:border-indigo-400 hover:bg-slate-50";
+              if (vote) {
+                style = isPreferred
+                  ? "border-emerald-500 bg-emerald-50"
+                  : isVote
+                    ? "border-red-400 bg-red-50"
+                    : "border-slate-200 bg-white opacity-70";
+              }
+              return (
+                <button
+                  type="button"
+                  key={choice}
+                  onClick={() => castVote(choice)}
+                  aria-disabled={vote !== null}
+                  aria-pressed={isVote}
+                  className={`flex flex-col rounded-lg border p-4 text-left text-sm transition-colors ${style} ${
+                    vote ? "cursor-default" : ""
+                  }`}
+                >
+                  <span className="mb-1.5 flex items-center justify-between text-xs font-medium text-slate-500">
+                    Response {choice}
+                    {vote && isPreferred && (
+                      <span className="inline-flex items-center gap-1 text-emerald-700">
+                        <CheckCircle2 size={14} aria-hidden="true" /> Preferred
+                      </span>
+                    )}
+                    {vote && isVote && !isPreferred && (
+                      <span className="inline-flex items-center gap-1 text-red-700">
+                        <XCircle size={14} aria-hidden="true" /> Your pick
+                      </span>
+                    )}
+                  </span>
+                  <span className="leading-relaxed text-slate-800">{text}</span>
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <div aria-live="polite">
+          {vote && (
+            <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm leading-relaxed text-slate-600">
+              <strong className="font-medium text-slate-800">
+                {vote === scenario.preferred ? "You agreed with the reference. " : "The reference prefers the other answer. "}
+              </strong>
+              {scenario.reason}
+            </p>
+          )}
+          {finished && (
+            <p className="mt-3 text-sm font-medium text-slate-800">
+              Done: you agreed on {agreed} of {SCENARIOS.length}. Thousands of comparisons like these are what a reward
+              model is trained on.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+          <button type="button" onClick={restart} className={buttonSecondary} disabled={answered === 0}>
+            <RotateCcw size={16} aria-hidden="true" /> Start over
+          </button>
+          {vote && idx < SCENARIOS.length - 1 && (
+            <button type="button" onClick={() => setIdx(idx + 1)} className={buttonPrimary}>
+              Next comparison
+            </button>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
